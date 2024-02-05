@@ -2,125 +2,108 @@ import Foundation
 
 final class Bank {
     private let customerCountRange: ClosedRange<Int> = 10...30
-    private var maxCustomerNumber: Int
+    private var totalCustomer: Int
     private var depositCustomerQueue: LinkedListQueue<Customer>
     private var loanCustomerQueue: LinkedListQueue<Customer>
-    private var depositManagerQueue: LinkedListQueue<BankManager>
-    private var loanManagerQueue: LinkedListQueue<BankManager>
-    private var isDepositManagerWorking: Bool
-    private var isLoanManagerWorking: Bool
-    private var isbankWorking: Bool {
-        return isDepositManagerWorking || isLoanManagerWorking
-    }
+    private var depositManagerQueue: DispatchSemaphore
+    private var loanManagerQueue: DispatchSemaphore
     
     init() {
-        self.maxCustomerNumber = 0
+        self.totalCustomer = 0
         self.depositCustomerQueue = LinkedListQueue<Customer>()
         self.loanCustomerQueue = LinkedListQueue<Customer>()
-        self.depositManagerQueue = LinkedListQueue<BankManager>()
-        self.loanManagerQueue = LinkedListQueue<BankManager>()
-        self.isDepositManagerWorking = true
-        self.isLoanManagerWorking = true
+        self.depositManagerQueue = DispatchSemaphore(value: 2)
+        self.loanManagerQueue = DispatchSemaphore(value: 1)
+
     }
 }
 
+
 extension Bank {
-    private func makeBankManagerQueue(depositManagerCount: Int, loanManagerCount: Int) {
-        (1...depositManagerCount).forEach { _ in
-            depositManagerQueue.enqueue(BankManager())
-        }
-        (1...loanManagerCount).forEach { _ in
-            loanManagerQueue.enqueue(BankManager())
-        }
-    }
     
     func process() {
         Message.menu.printMessage()
         Message.input.printMessage()
-        
-        guard let selectedMenu = validate() else {
+        let selectedMenu = validate()
+        switch selectedMenu {
+        case .wrongInput:
             Message.wrongInput.printMessage()
             process()
+        case .open:
+            makeCustomerQueue()
+            openBank()
+        case .exit:
             return
         }
-        
-        if selectedMenu == .wrongInput {
-            Message.wrongInput.printMessage()
-            process()
-            return
-        }
-        
-        if selectedMenu == .exit {
-            return
-        }
-        
-        makeBankManagerQueue(depositManagerCount: 2, loanManagerCount: 1)
-        makeCustomerQueue()
-        openBank()
     }
     
-    private func validate() -> Menu? {
+    private func validate() -> Menu {
+        
         guard let userInput = readLine() else {
-            return nil
+            return .wrongInput
         }
         return Menu(input: userInput)
     }
     
     private func makeCustomerQueue() {
-        (1...Int.random(in: customerCountRange)).forEach {
-            let task: Task = Int.random(in: 1...2) == 1 ? .deposit : .loan
-            let customerQueue = task == .deposit ? depositCustomerQueue : loanCustomerQueue
-            customerQueue.enqueue(Customer(number: $0, task: task))
-            maxCustomerNumber += 1
+        let totalCustomers = Int.random(in: customerCountRange)
+        var allCustomers: [Customer] = []
+
+        for number in 1...totalCustomers {
+            let task: Task = Bool.random() ? .deposit : .loan
+            allCustomers.append(Customer(number: number, task: task))
         }
-        isDepositManagerWorking = depositCustomerQueue.isEmpty ? false : true
-        isLoanManagerWorking = loanCustomerQueue.isEmpty ? false : true
+
+        allCustomers.forEach { customer in
+            if customer.task == .deposit {
+                depositCustomerQueue.enqueue(customer)
+            } else {
+                loanCustomerQueue.enqueue(customer)
+            }
+        }
+
+        totalCustomer = totalCustomers
     }
+
+
     
     private func openBank() {
         let openTime: Date = Date()
-        while isbankWorking {
-            handleQueues(task: .deposit)
-            handleQueues(task: .loan)
-        }
-        closeBank(openTime)
-    }
-    
-    private func handleQueues(task: Task) {
-        let managerQueue: LinkedListQueue<BankManager> = task == .deposit ? depositManagerQueue : loanManagerQueue
-        let customerQueue: LinkedListQueue<Customer> = task == .deposit ? depositCustomerQueue : loanCustomerQueue
-        if let manager: BankManager = managerQueue.dequeue(),
-           let customer: Customer = customerQueue.dequeue() {
-            assign(to: manager, with: customer)
+        let dispatchGrop = DispatchGroup()
+        processQueue(depositCustomerQueue, samaphore: depositManagerQueue, dispatchGrop: dispatchGrop)
+        processQueue(loanCustomerQueue, samaphore: loanManagerQueue, dispatchGrop: dispatchGrop)
+        
+        dispatchGrop.notify(queue: DispatchQueue.main) {
+            self.closeBank(openTime)
+            
         }
     }
     
-    private func assign(to bankManager: BankManager, with customer: Customer) {
-        let isLastCustomer: Bool = customer.task == .deposit ? depositCustomerQueue.isEmpty : loanCustomerQueue.isEmpty
-        DispatchQueue.global().async {
-            bankManager.deal(with: customer,
-                             isLastCustomer: isLastCustomer,
-                             completionHandler: { [weak self] (manager, task, isLastCustomer) in
-                let managerQueue = task == .deposit ? self?.depositManagerQueue : self?.loanManagerQueue
-                managerQueue?.enqueue(manager)
-                if isLastCustomer {
-                    self?.finishManaging(task)
+    private func processQueue(_ queue: LinkedListQueue<Customer>, samaphore: DispatchSemaphore, dispatchGrop: DispatchGroup) {
+        while let customer = queue.dequeue() {
+            dispatchGrop.enter()
+            samaphore.wait()
+            DispatchQueue.global().async {
+                self.processCustomer(customer) {
+                    samaphore.signal()
+                    dispatchGrop.leave()
                 }
-            })
+            }
         }
     }
     
-    private func finishManaging(_ task: Task) {
-        if task == .deposit {
-            isDepositManagerWorking = false
-            return
+    private func processCustomer(_ customer: Customer, completion: @escaping () -> Void) {
+        let manager = BankManager()
+        manager.deal(with: customer, isLastCustomer: false) { (manager, task, isLastCustomer) in
+            completion()
         }
-        isLoanManagerWorking = false
     }
+
     
     private func closeBank(_ openTime: Date) {
-        Message.close(customerCount: maxCustomerNumber, time: Date().timeIntervalSince(openTime)).printMessage()
-        maxCustomerNumber = 0
+        Message.close(customerCount: totalCustomer, time: Date().timeIntervalSince(openTime)).printMessage()
+        totalCustomer = 0
         process()
     }
 }
+
