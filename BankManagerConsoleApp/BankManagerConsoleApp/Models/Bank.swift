@@ -58,22 +58,21 @@ extension Bank {
     private func openBank() {
           let openTime: Date = Date()
           let dispatchGroup = DispatchGroup()
-        processQueue(depositCustomerQueue, samaphore: depositManagerQueue, dispatchGrop: dispatchGroup)
-        processQueue(loanCustomerQueue, samaphore: loanManagerQueue, dispatchGrop: dispatchGroup)
-          dispatchGroup.notify(queue: .main) {
+        processQueue(depositCustomerQueue, semaphore: depositManagerQueue, dispatchGroup: dispatchGroup)
+        processQueue(loanCustomerQueue, semaphore: loanManagerQueue, dispatchGroup: dispatchGroup)
+        dispatchGroup.notify(queue: .global()) {
               self.closeBank(openTime)
           }
       }
       
-    
-    private func processQueue(_ queue: LinkedListQueue<Customer>, samaphore: DispatchSemaphore, dispatchGrop: DispatchGroup) {
+    private func processQueue(_ queue: LinkedListQueue<Customer>, semaphore: DispatchSemaphore, dispatchGroup: DispatchGroup) {
         while let customer = queue.dequeue() {
-            dispatchGrop.enter()
-            samaphore.wait()
+            dispatchGroup.enter()
+            semaphore.wait()
             DispatchQueue.global().async {
                 self.processCustomer(customer) {
-                    samaphore.signal()
-                    dispatchGrop.leave()
+                    semaphore.signal()
+                    dispatchGroup.leave()
                 }
             }
         }
@@ -81,11 +80,10 @@ extension Bank {
     
     private func processCustomer(_ customer: Customer, completion: @escaping () -> Void) {
         let manager = BankManager()
-        manager.deal(with: customer, isLastCustomer: false) { (manager, task, isLastCustomer) in
+        manager.deal(with: customer, isLastCustomer: totalCustomer == 0) { (manager, task, isLastCustomer) in
             completion()
         }
     }
-
     
     private func closeBank(_ openTime: Date) {
         Message.close(customerCount: totalCustomer, time: Date().timeIntervalSince(openTime)).printMessage()

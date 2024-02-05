@@ -12,3 +12,6 @@ struct BankManager {
         completionHandler(self, customer.task, isLastCustomer)
     }
 }
+
+
+
