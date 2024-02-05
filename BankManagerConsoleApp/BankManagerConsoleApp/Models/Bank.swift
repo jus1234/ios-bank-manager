@@ -46,38 +46,26 @@ extension Bank {
     }
     
     private func makeCustomerQueue() {
-        let totalCustomers = Int.random(in: customerCountRange)
-        var allCustomers: [Customer] = []
-
-        for number in 1...totalCustomers {
+        let customerCount = Int.random(in: customerCountRange)
+        for number in 1...customerCount {
             let task: Task = Bool.random() ? .deposit : .loan
-            allCustomers.append(Customer(number: number, task: task))
+            let customer = Customer(number: number, task: task)
+            let customerQueue = task == .deposit ? depositCustomerQueue : loanCustomerQueue
+            customerQueue.enqueue(customer)
+            totalCustomer += 1
         }
-
-        allCustomers.forEach { customer in
-            if customer.task == .deposit {
-                depositCustomerQueue.enqueue(customer)
-            } else {
-                loanCustomerQueue.enqueue(customer)
-            }
-        }
-
-        totalCustomer = totalCustomers
     }
-
-
     
     private func openBank() {
-        let openTime: Date = Date()
-        let dispatchGrop = DispatchGroup()
-        processQueue(depositCustomerQueue, samaphore: depositManagerQueue, dispatchGrop: dispatchGrop)
-        processQueue(loanCustomerQueue, samaphore: loanManagerQueue, dispatchGrop: dispatchGrop)
-        
-        dispatchGrop.notify(queue: DispatchQueue.main) {
-            self.closeBank(openTime)
-            
-        }
-    }
+          let openTime: Date = Date()
+          let dispatchGroup = DispatchGroup()
+        processQueue(depositCustomerQueue, samaphore: depositManagerQueue, dispatchGrop: dispatchGroup)
+        processQueue(loanCustomerQueue, samaphore: loanManagerQueue, dispatchGrop: dispatchGroup)
+          dispatchGroup.notify(queue: .main) {
+              self.closeBank(openTime)
+          }
+      }
+      
     
     private func processQueue(_ queue: LinkedListQueue<Customer>, samaphore: DispatchSemaphore, dispatchGrop: DispatchGroup) {
         while let customer = queue.dequeue() {
