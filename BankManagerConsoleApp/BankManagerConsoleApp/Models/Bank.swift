@@ -14,7 +14,6 @@ final class Bank {
         self.loanCustomerQueue = LinkedListQueue<Customer>()
         self.depositManagerQueue = DispatchSemaphore(value: 2)
         self.loanManagerQueue = DispatchSemaphore(value: 1)
-
     }
 }
 
