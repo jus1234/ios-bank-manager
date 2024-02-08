@@ -4,14 +4,12 @@ final class Bank {
     private let customerCountRange: ClosedRange<Int> = 10...15
     private var totalCustomer: Int
     private let customerQueue: LinkedListQueue<Customer>
-    private let loanCustomerQueue: LinkedListQueue<Customer>
     private var depositSemaphore: DispatchSemaphore
     private var loanSemaphore: DispatchSemaphore
     
     init() {
         self.totalCustomer = 0
         self.customerQueue = LinkedListQueue<Customer>()
-        self.loanCustomerQueue = LinkedListQueue<Customer>()
         self.depositSemaphore = DispatchSemaphore(value: 2)
         self.loanSemaphore = DispatchSemaphore(value: 1)
     }
@@ -40,26 +38,23 @@ extension Bank {
         for number in 1...totalCustomer {
             let task: Task = Bool.random() ? .deposit : .loan
             let customer = Customer(number: number, task: task)
-            if task == .deposit {
-                customerQueue.enqueue(customer)
-            } else {
-                loanCustomerQueue.enqueue(customer)
-            }
+            customerQueue.enqueue(customer)
         }
     }
     
     private func openBank() {
         let openTime: Date = Date()
         let dispatchGroup = DispatchGroup()
-        processQueue(loanCustomerQueue, semaphore: loanSemaphore, dispatchGroup: dispatchGroup, queueType: "loan")
-        processQueue(customerQueue, semaphore: depositSemaphore, dispatchGroup: dispatchGroup, queueType: "deposit")
+        processQueue(customerQueue, dispatchGroup: dispatchGroup, queueType: "deposit")
         dispatchGroup.wait()
         closeBank(openTime)
     }
     
-    private func processQueue(_ queue: LinkedListQueue<Customer>, semaphore: DispatchSemaphore, dispatchGroup: DispatchGroup,queueType: String) {
-        while let customer = queue.dequeue() {
+    private func processQueue(_ queue: LinkedListQueue<Customer>, dispatchGroup: DispatchGroup,queueType: String) {
+        while !queue.isEmpty  {
+            guard let customer = queue.dequeue() else { return }
             dispatchGroup.enter()
+            let semaphore = customer.task == .deposit ? depositSemaphore : loanSemaphore
             semaphore.wait()
             DispatchQueue.global().async {
                 self.processCustomer(customer) {
@@ -69,7 +64,7 @@ extension Bank {
             }
         }
     }
-
+    
     private func processCustomer(_ customer: Customer, completion: @escaping () -> Void) {
         let manager = BankManager()
         manager.deal(with: customer, isLastCustomer: totalCustomer == 0) { (manager, task, isLastCustomer) in
